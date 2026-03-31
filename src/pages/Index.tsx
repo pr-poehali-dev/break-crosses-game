@@ -1,395 +1,419 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-type Screen = "home" | "game" | "pause" | "results" | "leaderboard" | "settings";
+// ─── Types ───────────────────────────────────────────────────────────────────
+type Screen = "home" | "game" | "pause" | "results" | "leaderboard";
 
-interface Cross {
+type Color = 0 | 1 | 2 | 3 | 4;
+const COLOR_META: { bg: string; glow: string; emoji: string }[] = [
+  { bg: "#FF6B6B", glow: "#FF6B6B88", emoji: "🔴" },
+  { bg: "#FFD93D", glow: "#FFD93D88", emoji: "🟡" },
+  { bg: "#6BCB77", glow: "#6BCB7788", emoji: "🟢" },
+  { bg: "#4D96FF", glow: "#4D96FF88", emoji: "🔵" },
+  { bg: "#CC5DE8", glow: "#CC5DE888", emoji: "🟣" },
+];
+
+interface Cell {
   id: number;
-  x: number;
-  y: number;
-  size: number;
-  color: string;
-  rotation: number;
-  born: number;
-  lifespan: number;
+  color: Color;
+  exploding: boolean;
+  selected: boolean;
+  falling: boolean;
 }
 
-interface Particle {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  color: string;
-  size: number;
-  emoji?: string;
-}
+interface FloatingScore { id: number; col: number; row: number; value: number }
+interface Particle { id: number; x: number; y: number; color: string; emoji?: string }
 
-interface FloatingScore {
-  id: number;
-  x: number;
-  y: number;
-  value: number;
-}
-
-const CROSS_COLORS = ["#FF6B6B", "#FFD93D", "#6BCB77", "#4D96FF", "#FF922B", "#CC5DE8", "#F06595"];
-const PARTICLE_EMOJIS = ["⭐", "💥", "✨", "🌟", "💫"];
-
-const DIFFICULTIES = {
-  easy: { label: "Легко 🐢", spawnInterval: 1800, maxCrosses: 6, lifespan: 4000 },
-  medium: { label: "Средне 🐇", spawnInterval: 1200, maxCrosses: 9, lifespan: 3000 },
-  hard: { label: "Сложно 🦅", spawnInterval: 650, maxCrosses: 14, lifespan: 1800 },
+type Difficulty = "easy" | "medium" | "hard";
+const DIFF_CONFIG: Record<Difficulty, { label: string; icon: string; cols: number; rows: number; colors: number; spawnMs: number; description: string }> = {
+  easy:   { label: "Лёгкий",  icon: "🐢", cols: 5, rows: 7, colors: 3, spawnMs: 2200, description: "3 цвета, медленный спавн" },
+  medium: { label: "Средний", icon: "🐇", cols: 6, rows: 8, colors: 4, spawnMs: 1500, description: "4 цвета, обычный темп" },
+  hard:   { label: "Сложный", icon: "🦅", cols: 7, rows: 9, colors: 5, spawnMs: 900,  description: "5 цветов, быстрый спавн" },
 };
 
-type Difficulty = keyof typeof DIFFICULTIES;
+let _uid = 1;
+const uid = () => _uid++;
 
+// ─── Audio ───────────────────────────────────────────────────────────────────
 function useAudio(enabled: boolean) {
   const ctx = useRef<AudioContext | null>(null);
-
-  const getCtx = () => {
-    const AudioCtx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!ctx.current && AudioCtx) ctx.current = new AudioCtx();
+  const getCtx = useCallback(() => {
+    const AC = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!ctx.current && AC) ctx.current = new AC();
     return ctx.current;
-  };
+  }, []);
 
-  const playPop = useCallback((freq = 440) => {
+  const tone = useCallback((freq: number, type: OscillatorType, dur: number, vol = 0.2) => {
     if (!enabled) return;
-    const ac = getCtx();
-    if (!ac) return;
+    const ac = getCtx(); if (!ac) return;
     const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.connect(gain);
-    gain.connect(ac.destination);
+    const g = ac.createGain();
+    osc.connect(g); g.connect(ac.destination);
+    osc.type = type;
     osc.frequency.setValueAtTime(freq, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(freq * 2, ac.currentTime + 0.15);
-    gain.gain.setValueAtTime(0.25, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
-    osc.type = "sine";
-    osc.start(ac.currentTime);
-    osc.stop(ac.currentTime + 0.3);
-  }, [enabled]);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.8, ac.currentTime + dur * 0.6);
+    g.gain.setValueAtTime(vol, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+    osc.start(ac.currentTime); osc.stop(ac.currentTime + dur);
+  }, [enabled, getCtx]);
 
-  const playMiss = useCallback(() => {
-    if (!enabled) return;
-    const ac = getCtx();
-    if (!ac) return;
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.connect(gain);
-    gain.connect(ac.destination);
-    osc.frequency.setValueAtTime(200, ac.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.2);
-    gain.gain.setValueAtTime(0.15, ac.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.2);
-    osc.type = "sawtooth";
-    osc.start(ac.currentTime);
-    osc.stop(ac.currentTime + 0.2);
-  }, [enabled]);
+  const playSelect = useCallback(() => tone(520, "sine", 0.12, 0.15), [tone]);
+  const playExplode = useCallback((count: number) => {
+    tone(300 + count * 30, "sine", 0.25, 0.25);
+    setTimeout(() => tone(600 + count * 20, "triangle", 0.2, 0.2), 80);
+  }, [tone]);
+  const playFail = useCallback(() => tone(180, "sawtooth", 0.3, 0.18), [tone]);
 
-  return { playPop, playMiss };
+  return { playSelect, playExplode, playFail };
 }
 
+// ─── Grid helpers ─────────────────────────────────────────────────────────────
+function makeGrid(cols: number, rows: number, numColors: number): Cell[][] {
+  return Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => ({
+      id: uid(),
+      color: Math.floor(Math.random() * numColors) as Color,
+      exploding: false,
+      selected: false,
+      falling: false,
+    }))
+  );
+}
+
+function floodFill(grid: Cell[][], row: number, col: number): [number, number][] {
+  const color = grid[row][col].color;
+  const rows = grid.length, cols = grid[0].length;
+  const visited = new Set<string>();
+  const result: [number, number][] = [];
+  const stack: [number, number][] = [[row, col]];
+  while (stack.length) {
+    const [r, c] = stack.pop()!;
+    const key = `${r},${c}`;
+    if (visited.has(key)) continue;
+    if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
+    if (grid[r][c].color !== color) continue;
+    visited.add(key);
+    result.push([r, c]);
+    stack.push([r-1,c],[r+1,c],[r,c-1],[r,c+1]);
+  }
+  return result;
+}
+
+function applyGravity(grid: Cell[][]): Cell[][] {
+  const cols = grid[0].length;
+  const rows = grid.length;
+  const newGrid = grid.map(row => [...row]);
+  for (let c = 0; c < cols; c++) {
+    const col: (Cell | null)[] = newGrid.map(r => r[c]);
+    const alive = col.filter(Boolean) as Cell[];
+    const empty = col.length - alive.length;
+    const filled: (Cell | null)[] = [
+      ...Array(empty).fill(null),
+      ...alive,
+    ];
+    for (let r = 0; r < rows; r++) newGrid[r][c] = filled[r]!;
+  }
+  return newGrid;
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [soundOn, setSoundOn] = useState(true);
+  const [grid, setGrid] = useState<(Cell | null)[][]>([]);
+  const [selected, setSelected] = useState<[number, number] | null>(null);
+  const [floatingScores, setFloatingScores] = useState<FloatingScore[]>([]);
+  const [particles, setParticles] = useState<Particle[]>([]);
   const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(90);
   const [bestScore, setBestScore] = useState(() => Number(localStorage.getItem("bestScore") || 0));
   const [leaderboard, setLeaderboard] = useState<number[]>(() => {
     try { return JSON.parse(localStorage.getItem("leaderboard") || "[]"); } catch { return []; }
   });
-  const [crosses, setCrosses] = useState<Cross[]>([]);
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const [floatingScores, setFloatingScores] = useState<FloatingScore[]>([]);
-  const [timeLeft, setTimeLeft] = useState(60);
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [soundOn, setSoundOn] = useState(true);
-  const [combo, setCombo] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [missedCrosses, setMissedCrosses] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [highlightGroup, setHighlightGroup] = useState<Set<string>>(new Set());
 
-  const gameActive = useRef(false);
-  const crossId = useRef(0);
-  const particleId = useRef(0);
-  const floatId = useRef(0);
-  const lastComboTime = useRef(0);
-  const comboRef = useRef(0);
-  const spawnTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cleanupTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const levelRef = useRef(1);
   const scoreRef = useRef(0);
-  const diffRef = useRef(difficulty);
-  diffRef.current = difficulty;
+  const gameActive = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const spawnRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cfg = DIFF_CONFIG[difficulty];
+  const { playSelect, playExplode, playFail } = useAudio(soundOn);
 
-  const { playPop, playMiss } = useAudio(soundOn);
-
-  const stopTimers = useCallback(() => {
+  // ── stop all timers ──
+  const stopAll = useCallback(() => {
     gameActive.current = false;
-    if (spawnTimer.current) clearInterval(spawnTimer.current);
     if (timerRef.current) clearInterval(timerRef.current);
-    if (cleanupTimer.current) clearInterval(cleanupTimer.current);
+    if (spawnRef.current) clearInterval(spawnRef.current);
   }, []);
 
+  // ── end game ──
   const endGame = useCallback(() => {
-    stopTimers();
-    const finalScore = scoreRef.current;
+    stopAll();
+    const final = scoreRef.current;
     setBestScore(prev => {
-      const newBest = Math.max(prev, finalScore);
-      localStorage.setItem("bestScore", String(newBest));
-      return newBest;
+      const nb = Math.max(prev, final);
+      localStorage.setItem("bestScore", String(nb));
+      return nb;
     });
     setLeaderboard(prev => {
-      const updated = [...prev, finalScore].sort((a, b) => b - a).slice(0, 10);
-      localStorage.setItem("leaderboard", JSON.stringify(updated));
-      return updated;
+      const up = [...prev, final].sort((a, b) => b - a).slice(0, 10);
+      localStorage.setItem("leaderboard", JSON.stringify(up));
+      return up;
     });
-    setCrosses([]);
+    setGameOver(true);
     setScreen("results");
-  }, [stopTimers]);
-
-  const spawnLoop = useCallback(() => {
-    const diff = DIFFICULTIES[diffRef.current];
-    const lvl = levelRef.current;
-    const interval = Math.max(280, diff.spawnInterval - (lvl - 1) * 80);
-
-    if (spawnTimer.current) clearInterval(spawnTimer.current);
-    spawnTimer.current = setInterval(() => {
-      if (!gameActive.current) return;
-      setCrosses(prev => {
-        const max = diff.maxCrosses + Math.floor(levelRef.current * 1.5);
-        if (prev.length >= max) return prev;
-        const id = ++crossId.current;
-        const size = 44 + Math.random() * 22;
-        const x = 6 + Math.random() * 84;
-        const y = 14 + Math.random() * 74;
-        const color = CROSS_COLORS[Math.floor(Math.random() * CROSS_COLORS.length)];
-        const ls = diff.lifespan / (1 + (levelRef.current - 1) * 0.12);
-        return [...prev, { id, x, y, size, color, rotation: Math.random() * 40 - 20, born: Date.now(), lifespan: ls }];
-      });
-    }, interval);
-  }, []);
-
-  const startGame = useCallback(() => {
-    stopTimers();
-    setCrosses([]);
-    setParticles([]);
-    setFloatingScores([]);
-    setScore(0);
-    scoreRef.current = 0;
-    setTimeLeft(60);
-    setCombo(0);
-    comboRef.current = 0;
-    setLevel(1);
-    levelRef.current = 1;
-    setMissedCrosses(0);
-    gameActive.current = true;
-
-    setScreen("game");
-
-    timerRef.current = setInterval(() => {
-      setTimeLeft(t => {
-        if (t <= 1) { return 0; }
-        return t - 1;
-      });
-    }, 1000);
-
-    spawnLoop();
-
-    cleanupTimer.current = setInterval(() => {
-      if (!gameActive.current) return;
-      const now = Date.now();
-      setCrosses(prev => {
-        const alive = prev.filter(c => now - c.born <= c.lifespan);
-        const missed = prev.length - alive.length;
-        if (missed > 0) {
-          playMiss();
-          setMissedCrosses(m => m + missed);
-        }
-        return alive;
-      });
-      const newLvl = Math.floor(scoreRef.current / 120) + 1;
-      if (newLvl !== levelRef.current) {
-        levelRef.current = newLvl;
-        setLevel(newLvl);
-        spawnLoop();
-      }
-    }, 400);
-  }, [stopTimers, spawnLoop, playMiss]);
+  }, [stopAll]);
 
   useEffect(() => {
-    if (timeLeft === 0 && gameActive.current) {
-      endGame();
-    }
+    if (timeLeft <= 0 && gameActive.current) endGame();
   }, [timeLeft, endGame]);
 
-  useEffect(() => () => stopTimers(), [stopTimers]);
-
-  const burstCross = useCallback((cross: Cross, e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if (!gameActive.current) return;
-
-    const rect = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
-    const cx = (cross.x / 100) * rect.width;
-    const cy = (cross.y / 100) * rect.height;
-
-    setCrosses(prev => prev.filter(c => c.id !== cross.id));
-
-    const now = Date.now();
-    const isCombo = now - lastComboTime.current < 900;
-    lastComboTime.current = now;
-    const newCombo = isCombo ? comboRef.current + 1 : 1;
-    comboRef.current = newCombo;
-    setCombo(newCombo);
-    setTimeout(() => {
-      if (comboRef.current === newCombo) { comboRef.current = 0; setCombo(0); }
-    }, 900);
-
-    const pts = (10 + (newCombo - 1) * 5) * levelRef.current;
-    scoreRef.current += pts;
-    setScore(scoreRef.current);
-
-    playPop(280 + newCombo * 70);
-
-    const newParticles: Particle[] = Array.from({ length: 9 }, (_, i) => ({
-      id: ++particleId.current,
-      x: cx,
-      y: cy,
-      vx: (Math.random() - 0.5) * 9,
-      vy: (Math.random() - 0.5) * 9 - 2,
-      color: CROSS_COLORS[Math.floor(Math.random() * CROSS_COLORS.length)],
-      size: 6 + Math.random() * 9,
-      opacity: 1,
-      rotation: Math.random() * 360,
-      emoji: Math.random() > 0.55 ? PARTICLE_EMOJIS[Math.floor(Math.random() * PARTICLE_EMOJIS.length)] : undefined,
+  // ── spawn a new row at top ──
+  const spawnRow = useCallback((currentGrid: (Cell | null)[][], numColors: number): (Cell | null)[][] => {
+    const cols = currentGrid[0]?.length || cfg.cols;
+    const newRow: Cell[] = Array.from({ length: cols }, () => ({
+      id: uid(),
+      color: Math.floor(Math.random() * numColors) as Color,
+      exploding: false, selected: false, falling: false,
     }));
+    // shift everything down, drop bottom row if full
+    const shifted = [newRow, ...currentGrid.slice(0, currentGrid.length - 1)];
+    return shifted;
+  }, [cfg.cols]);
 
-    setParticles(prev => [...prev, ...newParticles]);
-    setTimeout(() => {
-      setParticles(prev => prev.filter(p => !newParticles.find(np => np.id === p.id)));
-    }, 700);
-
-    const fid = ++floatId.current;
-    setFloatingScores(prev => [...prev, { id: fid, x: cx, y: cy, value: pts }]);
-    setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== fid)), 900);
-  }, [playPop]);
-
-  const pauseGame = () => {
-    stopTimers();
-    setScreen("pause");
-  };
-
-  const resumeGame = () => {
+  // ── start game ──
+  const startGame = useCallback(() => {
+    stopAll();
+    setSelected(null);
+    setHighlightGroup(new Set());
+    setFloatingScores([]);
+    setParticles([]);
+    setScore(0);
+    scoreRef.current = 0;
+    setGameOver(false);
+    const { cols, rows, colors, spawnMs } = DIFF_CONFIG[difficulty];
+    const g = makeGrid(cols, rows, colors);
+    setGrid(g);
+    setTimeLeft(90);
     gameActive.current = true;
     setScreen("game");
 
     timerRef.current = setInterval(() => {
-      setTimeLeft(t => { if (t <= 1) return 0; return t - 1; });
+      setTimeLeft(t => t <= 1 ? 0 : t - 1);
     }, 1000);
 
-    spawnLoop();
-
-    cleanupTimer.current = setInterval(() => {
+    spawnRef.current = setInterval(() => {
       if (!gameActive.current) return;
-      const now = Date.now();
-      setCrosses(prev => {
-        const alive = prev.filter(c => now - c.born <= c.lifespan);
-        const missed = prev.length - alive.length;
-        if (missed > 0) { playMiss(); setMissedCrosses(m => m + missed); }
-        return alive;
-      });
-    }, 400);
-  };
+      setGrid(prev => spawnRow(prev, colors));
+    }, spawnMs);
+  }, [difficulty, stopAll, spawnRow]);
 
-  const timerPct = (timeLeft / 60) * 100;
-  const timerColor = timeLeft > 20 ? "#6BCB77" : timeLeft > 10 ? "#FFD93D" : "#FF6B6B";
+  useEffect(() => () => stopAll(), [stopAll]);
+
+  // ── highlight group on hover/touch ──
+  const getGroup = useCallback((g: (Cell | null)[][], r: number, c: number) => {
+    if (!g[r]?.[c]) return new Set<string>();
+    const group = floodFill(g as Cell[][], r, c);
+    if (group.length < 2) return new Set<string>();
+    return new Set(group.map(([row, col]) => `${row},${col}`));
+  }, []);
+
+  // ── tap cell ──
+  const tapCell = useCallback((row: number, col: number) => {
+    if (!gameActive.current) return;
+    setGrid(prevGrid => {
+      const cell = prevGrid[row]?.[col];
+      if (!cell) return prevGrid;
+
+      const group = floodFill(prevGrid as Cell[][], row, col);
+      if (group.length < 2) {
+        // single — just select/deselect
+        playFail();
+        setSelected(prev => (prev?.[0] === row && prev?.[1] === col) ? null : [row, col]);
+        setHighlightGroup(new Set());
+        return prevGrid;
+      }
+
+      // explode group!
+      playExplode(group.length);
+      const pts = group.length * group.length * 10;
+      scoreRef.current += pts;
+      setScore(scoreRef.current);
+
+      // floating score at center of group
+      const avgRow = group.reduce((s, [r]) => s + r, 0) / group.length;
+      const avgCol = group.reduce((s, [, c]) => s + c, 0) / group.length;
+      const fid = uid();
+      setFloatingScores(prev => [...prev, { id: fid, col: avgCol, row: avgRow, value: pts }]);
+      setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== fid)), 900);
+
+      // particles
+      const color = COLOR_META[cell.color].bg;
+      const newParts: Particle[] = group.slice(0, 8).map(([r, c]) => ({
+        id: uid(),
+        x: c, y: r,
+        color,
+        emoji: Math.random() > 0.5 ? ["💥","✨","⭐","🌟","💫"][Math.floor(Math.random()*5)] : undefined,
+      }));
+      setParticles(prev => [...prev, ...newParts]);
+      setTimeout(() => setParticles(prev => prev.filter(p => !newParts.find(np => np.id === p.id))), 650);
+
+      // remove exploded cells and apply gravity
+      const newGrid = prevGrid.map(r => [...r]) as (Cell | null)[][];
+      const groupSet = new Set(group.map(([r, c]) => `${r},${c}`));
+      for (let r = 0; r < newGrid.length; r++)
+        for (let c = 0; c < newGrid[0].length; c++)
+          if (groupSet.has(`${r},${c}`)) newGrid[r][c] = null;
+
+      const gravGrid = applyGravity(newGrid);
+      setSelected(null);
+      setHighlightGroup(new Set());
+      return gravGrid;
+    });
+  }, [playExplode, playFail]);
+
+  const hoverCell = useCallback((row: number, col: number) => {
+    setGrid(g => {
+      setHighlightGroup(getGroup(g as Cell[][], row, col));
+      return g;
+    });
+  }, [getGroup]);
+
+  const timerPct = (timeLeft / 90) * 100;
+  const timerColor = timeLeft > 30 ? "#6BCB77" : timeLeft > 15 ? "#FFD93D" : "#FF6B6B";
+  const { cols, rows } = cfg;
 
   return (
     <div className="gr">
-      {/* ───── HOME ───── */}
+
+      {/* ══════════ HOME ══════════ */}
       {screen === "home" && (
         <div className="sc home-sc">
           <div className="home-bg-floats">
-            {["💥","⭐","✨","🌟","💫","🎯","🎮","❌","🏆"].map((e, i) => (
-              <span key={i} className="bgf" style={{
-                left: `${5 + i * 11}%`,
-                top: `${5 + (i % 3) * 28}%`,
-                animationDelay: `${i * 0.35}s`,
-                animationDuration: `${3.5 + i * 0.25}s`,
-              }}>{e}</span>
+            {["💥","⭐","✨","🌟","❌","🎮","🏆","💫","🔴","🟡","🟢","🔵"].map((e, i) => (
+              <span key={i} className="bgf" style={{ left:`${4+i*8}%`, top:`${10+(i%4)*22}%`, animationDelay:`${i*0.3}s`, animationDuration:`${3+i*0.2}s` }}>{e}</span>
             ))}
           </div>
           <div className="home-inner">
             <div className="mascot-wrap">
               <span className="mascot">🤖</span>
-              <div className="mascot-speech">Тапай быстрее!</div>
+              <div className="mascot-speech">Соединяй одинаковые!</div>
             </div>
             <h1 className="gtitle">Разбей<br/>крестики!</h1>
             <div className="best-badge">🏆 Рекорд: <strong>{bestScore}</strong></div>
+
+            {/* difficulty selector */}
+            <div className="diff-section">
+              <div className="diff-title">Выбери уровень:</div>
+              <div className="diff-cards">
+                {(Object.keys(DIFF_CONFIG) as Difficulty[]).map(d => (
+                  <button
+                    key={d}
+                    className={`diff-card ${difficulty === d ? "active" : ""}`}
+                    onClick={() => setDifficulty(d)}
+                  >
+                    <span className="diff-card-icon">{DIFF_CONFIG[d].icon}</span>
+                    <span className="diff-card-label">{DIFF_CONFIG[d].label}</span>
+                    <span className="diff-card-desc">{DIFF_CONFIG[d].description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <button className="btn-play" onClick={startGame}>🎮 ИГРАТЬ!</button>
+
             <div className="home-row">
               <button className="btn-nav" onClick={() => setScreen("leaderboard")}>🏆<br/><small>Рекорды</small></button>
-              <button className="btn-nav" onClick={() => setScreen("settings")}>⚙️<br/><small>Настройки</small></button>
+              <button className="btn-nav" onClick={() => setSoundOn(s => !s)}>
+                {soundOn ? "🔊" : "🔇"}<br/><small>{soundOn ? "Звук вкл" : "Звук выкл"}</small>
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ───── GAME ───── */}
+      {/* ══════════ GAME ══════════ */}
       {screen === "game" && (
-        <div className="sc game-sc" style={{ touchAction: "none", userSelect: "none" }}>
+        <div className="sc game-sc">
+          {/* HUD */}
           <div className="hud">
             <div className="hud-s">⭐ {score}</div>
             <div className="hud-mid">
               <div className="tbar-wrap">
-                <div className="tbar" style={{ width: `${timerPct}%`, background: timerColor }} />
+                <div className="tbar" style={{ width:`${timerPct}%`, background: timerColor }} />
               </div>
               <div className="hud-t" style={{ color: timerColor }}>{timeLeft}с</div>
             </div>
-            <button className="hud-pause" onClick={pauseGame}>⏸</button>
+            <button className="hud-pause" onClick={() => { stopAll(); setScreen("pause"); }}>⏸</button>
           </div>
 
-          {combo > 1 && (
-            <div className="combo-pop">🔥 x{combo} КОМБО!</div>
-          )}
+          {/* hint */}
+          <div className="hint-bar">Нажми на группу одинаковых крестиков — они взорвутся!</div>
 
-          <div className="lv-badge">Ур.{level}</div>
-
+          {/* Grid */}
           <div className="field">
-            {crosses.map(cross => {
-              const age = (Date.now() - cross.born);
-              const pct = Math.min(age / cross.lifespan, 1);
-              return (
-                <button
-                  key={cross.id}
-                  className="cross"
-                  style={{
-                    left: `${cross.x}%`,
-                    top: `${cross.y}%`,
-                    width: cross.size,
-                    height: cross.size,
-                    fontSize: cross.size * 0.72,
-                    color: cross.color,
-                    transform: `translate(-50%,-50%) rotate(${cross.rotation}deg) scale(${1 - pct * 0.28})`,
-                    opacity: Math.max(0.4, 1 - pct * 0.55),
-                    textShadow: `0 0 12px ${cross.color}cc`,
-                  }}
-                  onTouchStart={e => burstCross(cross, e)}
-                  onClick={e => burstCross(cross, e)}
-                >
-                  ✕
-                </button>
-              );
-            })}
+            <div
+              className="game-grid"
+              style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
+              onMouseLeave={() => setHighlightGroup(new Set())}
+            >
+              {grid.map((row, ri) =>
+                row.map((cell, ci) => {
+                  const key = `${ri},${ci}`;
+                  const isHighlighted = highlightGroup.has(key);
+                  const meta = cell ? COLOR_META[cell.color] : null;
+                  return (
+                    <div
+                      key={cell ? cell.id : `empty-${key}`}
+                      className={`gcell ${cell ? "has-cell" : "empty-cell"} ${isHighlighted ? "highlighted" : ""}`}
+                      onMouseEnter={() => cell && hoverCell(ri, ci)}
+                      onTouchStart={() => cell && tapCell(ri, ci)}
+                      onClick={() => cell && tapCell(ri, ci)}
+                    >
+                      {cell && (
+                        <div
+                          className="cross-tile"
+                          style={{
+                            background: meta!.bg,
+                            boxShadow: isHighlighted ? `0 0 16px ${meta!.glow}, 0 0 32px ${meta!.glow}` : `0 2px 8px ${meta!.glow}`,
+                            transform: isHighlighted ? "scale(1.15)" : "scale(1)",
+                          }}
+                        >
+                          ✕
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
+            {/* particles */}
             {particles.map(p => (
-              <div key={p.id} className="ptcl" style={{ left: p.x, top: p.y }}>
-                {p.emoji
-                  ? <span style={{ fontSize: p.size + 6 }}>{p.emoji}</span>
-                  : <div style={{ width: p.size, height: p.size, background: p.color, borderRadius: "50%" }} />
-                }
+              <div
+                key={p.id}
+                className="grid-particle"
+                style={{
+                  left: `${(p.x + 0.5) / cols * 100}%`,
+                  top: `${(p.y + 0.5) / rows * 100}%`,
+                  color: p.color,
+                }}
+              >
+                {p.emoji || "●"}
               </div>
             ))}
 
+            {/* floating scores */}
             {floatingScores.map(f => (
-              <div key={f.id} className="fscore" style={{ left: f.x, top: f.y }}>
+              <div
+                key={f.id}
+                className="fscore"
+                style={{
+                  left: `${(f.col + 0.5) / cols * 100}%`,
+                  top: `${(f.row + 0.5) / rows * 100}%`,
+                }}
+              >
                 +{f.value}
               </div>
             ))}
@@ -397,36 +421,42 @@ export default function Index() {
         </div>
       )}
 
-      {/* ───── PAUSE ───── */}
+      {/* ══════════ PAUSE ══════════ */}
       {screen === "pause" && (
         <div className="sc ov-sc">
           <div className="card">
             <div className="ov-msc">😴</div>
             <h2 className="ov-title">Пауза</h2>
             <div className="ov-score">⭐ {score} очков</div>
-            <button className="btn-play" onClick={resumeGame}>▶️ Продолжить</button>
-            <button className="btn-sec" onClick={() => { stopTimers(); setScreen("home"); }}>🏠 В меню</button>
-            <button className="btn-dng" onClick={() => startGame()}>🔄 Заново</button>
+            <button className="btn-play" onClick={() => {
+              gameActive.current = true;
+              setScreen("game");
+              timerRef.current = setInterval(() => setTimeLeft(t => t <= 1 ? 0 : t - 1), 1000);
+              const { colors, spawnMs } = DIFF_CONFIG[difficulty];
+              spawnRef.current = setInterval(() => {
+                if (!gameActive.current) return;
+                setGrid(prev => spawnRow(prev, colors));
+              }, spawnMs);
+            }}>▶️ Продолжить</button>
+            <button className="btn-sec" onClick={() => { stopAll(); setScreen("home"); }}>🏠 В меню</button>
+            <button className="btn-dng" onClick={startGame}>🔄 Заново</button>
           </div>
         </div>
       )}
 
-      {/* ───── RESULTS ───── */}
+      {/* ══════════ RESULTS ══════════ */}
       {screen === "results" && (
         <div className="sc ov-sc">
           <div className="card results-c">
             <div className="ov-msc big">
-              {score >= bestScore && score > 0 ? "🏆" : score > 150 ? "😎" : "😅"}
+              {score >= bestScore && score > 0 ? "🏆" : score > 300 ? "😎" : "😅"}
             </div>
-            {score >= bestScore && score > 0 && (
-              <div className="new-rec">🎉 НОВЫЙ РЕКОРД!</div>
-            )}
+            {score >= bestScore && score > 0 && <div className="new-rec">🎉 НОВЫЙ РЕКОРД!</div>}
             <h2 className="ov-title">Игра окончена!</h2>
             <div className="stats">
               <div className="stat-r"><span>⭐ Очки</span><strong>{score}</strong></div>
               <div className="stat-r"><span>🏆 Рекорд</span><strong>{bestScore}</strong></div>
-              <div className="stat-r"><span>🎯 Уровень</span><strong>{level}</strong></div>
-              <div className="stat-r"><span>💔 Пропустил</span><strong>{missedCrosses}</strong></div>
+              <div className="stat-r"><span>🎮 Уровень</span><strong>{DIFF_CONFIG[difficulty].label}</strong></div>
             </div>
             <button className="btn-play" onClick={startGame}>🔄 Ещё раз!</button>
             <button className="btn-sec" onClick={() => setScreen("leaderboard")}>🏆 Рекорды</button>
@@ -435,7 +465,7 @@ export default function Index() {
         </div>
       )}
 
-      {/* ───── LEADERBOARD ───── */}
+      {/* ══════════ LEADERBOARD ══════════ */}
       {screen === "leaderboard" && (
         <div className="sc ov-sc">
           <div className="card lb-card">
@@ -447,56 +477,18 @@ export default function Index() {
             ) : (
               <div className="lb-list">
                 {leaderboard.slice(0, 10).map((s, i) => (
-                  <div key={i} className={`lb-row ${i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : ""}`}>
-                    <span className="lb-pl">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}</span>
+                  <div key={i} className={`lb-row ${i===0?"gold":i===1?"silver":i===2?"bronze":""}`}>
+                    <span className="lb-pl">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`}</span>
                     <span className="lb-sc">{s} очков</span>
                   </div>
                 ))}
               </div>
             )}
             <button className="btn-play" onClick={startGame}>🎮 Играть!</button>
-          </div>
-        </div>
-      )}
-
-      {/* ───── SETTINGS ───── */}
-      {screen === "settings" && (
-        <div className="sc ov-sc">
-          <div className="card">
-            <button className="back-btn" onClick={() => setScreen("home")}>← Назад</button>
-            <div className="ov-msc">⚙️</div>
-            <h2 className="ov-title">Настройки</h2>
-
-            <div className="set-sec">
-              <div className="set-lbl">🔊 Звук</div>
-              <div className="tog-row">
-                <button className={`tog ${soundOn ? "on" : ""}`} onClick={() => setSoundOn(true)}>Вкл</button>
-                <button className={`tog ${!soundOn ? "on" : ""}`} onClick={() => setSoundOn(false)}>Выкл</button>
-              </div>
-            </div>
-
-            <div className="set-sec">
-              <div className="set-lbl">🎮 Сложность</div>
-              <div className="diff-row">
-                {(Object.keys(DIFFICULTIES) as Difficulty[]).map(d => (
-                  <button key={d} className={`diff-b ${difficulty === d ? "on" : ""}`} onClick={() => setDifficulty(d)}>
-                    {DIFFICULTIES[d].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="set-sec">
-              <div className="set-lbl">🗑️ Сбросить рекорды</div>
-              <button className="btn-dng small" onClick={() => {
-                localStorage.removeItem("bestScore");
-                localStorage.removeItem("leaderboard");
-                setBestScore(0);
-                setLeaderboard([]);
-              }}>Сбросить</button>
-            </div>
-
-            <button className="btn-play" onClick={startGame}>🎮 Играть!</button>
+            <button className="btn-ghost" onClick={() => {
+              localStorage.removeItem("bestScore"); localStorage.removeItem("leaderboard");
+              setBestScore(0); setLeaderboard([]);
+            }}>🗑️ Сбросить</button>
           </div>
         </div>
       )}

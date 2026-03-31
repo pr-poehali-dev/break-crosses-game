@@ -319,9 +319,177 @@
   transform: scale(0.96);
 }
 
+/* ═══════════════════ DIFFICULTY CARDS (HOME) ═══════════════════ */
+.diff-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.diff-title {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Nunito", sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.diff-cards {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.diff-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0.7rem 0.4rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.diff-card.active {
+  background: rgba(204, 93, 232, 0.25);
+  border-color: #cc5de8;
+  color: #fff;
+  box-shadow:
+    0 0 20px #cc5de855,
+    inset 0 0 12px #cc5de822;
+}
+
+.diff-card:active {
+  transform: scale(0.95);
+}
+
+.diff-card-icon {
+  font-size: 1.6rem;
+}
+.diff-card-label {
+  font-family: "Nunito", sans-serif;
+  font-weight: 900;
+  font-size: 0.9rem;
+}
+.diff-card-desc {
+  font-size: 0.62rem;
+  opacity: 0.7;
+  text-align: center;
+  line-height: 1.2;
+}
+
 /* ═══════════════════ GAME SCREEN ═══════════════════ */
 .game-sc {
   background: radial-gradient(ellipse at 50% 50%, #240a4a 0%, #0d0220 100%);
+}
+
+.hint-bar {
+  width: 100%;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.7rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════ GRID ═══════════════════ */
+.game-grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  gap: 3px;
+  padding: 6px;
+}
+
+.gcell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  position: relative;
+}
+
+.gcell.empty-cell {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.06);
+  cursor: default;
+}
+
+.gcell.has-cell {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gcell.highlighted {
+  background: rgba(255, 255, 255, 0.12);
+  animation: cellPulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes cellPulse {
+  0% {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  100% {
+    background: rgba(255, 255, 255, 0.18);
+  }
+}
+
+.cross-tile {
+  width: 80%;
+  height: 80%;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: clamp(0.9rem, 3vw, 1.4rem);
+  color: rgba(255, 255, 255, 0.95);
+  transition:
+    transform 0.12s,
+    box-shadow 0.12s;
+  will-change: transform;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.gcell:active .cross-tile {
+  transform: scale(0.78) !important;
+}
+
+.grid-particle {
+  position: absolute;
+  font-size: 1.3rem;
+  pointer-events: none;
+  animation: gridBurst 0.65s ease-out forwards;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+}
+
+@keyframes gridBurst {
+  0% {
+    transform: translate(-50%, -50%) scale(1.4);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(
+        calc(-50% + var(--px, 20px)),
+        calc(-50% + var(--py, -30px))
+      )
+      scale(0.2);
+    opacity: 0;
+  }
 }
 
 .hud {

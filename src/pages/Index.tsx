@@ -79,8 +79,10 @@ function makeGrid(cols: number, rows: number, numColors: number): Cell[][] {
   );
 }
 
-function floodFill(grid: Cell[][], row: number, col: number): [number, number][] {
-  const color = grid[row][col].color;
+function floodFill(grid: (Cell | null)[][], row: number, col: number): [number, number][] {
+  const startCell = grid[row]?.[col];
+  if (!startCell) return [];
+  const color = startCell.color;
   const rows = grid.length, cols = grid[0].length;
   const visited = new Set<string>();
   const result: [number, number][] = [];
@@ -90,7 +92,8 @@ function floodFill(grid: Cell[][], row: number, col: number): [number, number][]
     const key = `${r},${c}`;
     if (visited.has(key)) continue;
     if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
-    if (grid[r][c].color !== color) continue;
+    const cell = grid[r][c];
+    if (!cell || cell.color !== color) continue;
     visited.add(key);
     result.push([r, c]);
     stack.push([r-1,c],[r+1,c],[r,c-1],[r,c+1]);
@@ -214,7 +217,7 @@ export default function Index() {
   // ── highlight group on hover/touch ──
   const getGroup = useCallback((g: (Cell | null)[][], r: number, c: number) => {
     if (!g[r]?.[c]) return new Set<string>();
-    const group = floodFill(g as Cell[][], r, c);
+    const group = floodFill(g, r, c);
     if (group.length < 2) return new Set<string>();
     return new Set(group.map(([row, col]) => `${row},${col}`));
   }, []);
@@ -226,7 +229,7 @@ export default function Index() {
       const cell = prevGrid[row]?.[col];
       if (!cell) return prevGrid;
 
-      const group = floodFill(prevGrid as Cell[][], row, col);
+      const group = floodFill(prevGrid, row, col);
       if (group.length < 2) {
         // single — just select/deselect
         playFail();

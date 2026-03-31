@@ -214,6 +214,9 @@ export default function Index() {
 
   useEffect(() => () => stopAll(), [stopAll]);
 
+  const [hoverCount, setHoverCount] = useState(0);
+  const [hoverColor, setHoverColor] = useState<string>("");
+
   // ── highlight group on hover/touch ──
   const getGroup = useCallback((g: (Cell | null)[][], r: number, c: number) => {
     if (!g[r]?.[c]) return new Set<string>();
@@ -278,10 +281,15 @@ export default function Index() {
 
   const hoverCell = useCallback((row: number, col: number) => {
     setGrid(g => {
-      setHighlightGroup(getGroup(g as Cell[][], row, col));
+      const group = floodFill(g, row, col);
+      const s = new Set(group.map(([r, c]) => `${r},${c}`));
+      setHighlightGroup(s);
+      setHoverCount(group.length >= 2 ? group.length : 0);
+      const cell = g[row]?.[col];
+      setHoverColor(cell && group.length >= 2 ? COLOR_META[cell.color].bg : "");
       return g;
     });
-  }, [getGroup]);
+  }, []);
 
   const timerPct = (timeLeft / 90) * 100;
   const timerColor = timeLeft > 30 ? "#6BCB77" : timeLeft > 15 ? "#FFD93D" : "#FF6B6B";
@@ -351,15 +359,22 @@ export default function Index() {
             <button className="hud-pause" onClick={() => { stopAll(); setScreen("pause"); }}>⏸</button>
           </div>
 
-          {/* hint */}
-          <div className="hint-bar">Нажми на группу одинаковых крестиков — они взорвутся!</div>
+          {/* hint / hover badge */}
+          {hoverCount >= 2 ? (
+            <div className="hint-bar hint-active" style={{ borderBottomColor: hoverColor + "66" }}>
+              <span style={{ color: hoverColor, fontWeight: 900 }}>{hoverCount} крестиков</span>
+              {" "}— нажми! &nbsp;⭐ <strong>+{hoverCount * hoverCount * 10}</strong>
+            </div>
+          ) : (
+            <div className="hint-bar">Наведи на группу одинаковых крестиков</div>
+          )}
 
           {/* Grid */}
           <div className="field">
             <div
               className="game-grid"
               style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
-              onMouseLeave={() => setHighlightGroup(new Set())}
+              onMouseLeave={() => { setHighlightGroup(new Set()); setHoverCount(0); setHoverColor(""); }}
             >
               {grid.map((row, ri) =>
                 row.map((cell, ci) => {
@@ -371,7 +386,7 @@ export default function Index() {
                       key={cell ? cell.id : `empty-${key}`}
                       className={`gcell ${cell ? "has-cell" : "empty-cell"} ${isHighlighted ? "highlighted" : ""}`}
                       onMouseEnter={() => cell && hoverCell(ri, ci)}
-                      onTouchStart={() => cell && tapCell(ri, ci)}
+                      onTouchStart={e => { e.preventDefault(); if (cell) { hoverCell(ri, ci); tapCell(ri, ci); } }}
                       onClick={() => cell && tapCell(ri, ci)}
                     >
                       {cell && (
@@ -379,8 +394,9 @@ export default function Index() {
                           className="cross-tile"
                           style={{
                             background: meta!.bg,
-                            boxShadow: isHighlighted ? `0 0 16px ${meta!.glow}, 0 0 32px ${meta!.glow}` : `0 2px 8px ${meta!.glow}`,
-                            transform: isHighlighted ? "scale(1.15)" : "scale(1)",
+                            boxShadow: isHighlighted ? `0 0 18px ${meta!.glow}, 0 0 36px ${meta!.glow}` : `0 2px 8px ${meta!.glow}`,
+                            transform: isHighlighted ? "scale(1.18)" : "scale(1)",
+                            border: isHighlighted ? `2px solid rgba(255,255,255,0.7)` : `2px solid rgba(255,255,255,0.3)`,
                           }}
                         >
                           ✕

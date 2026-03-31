@@ -393,13 +393,31 @@
 
 .hint-bar {
   width: 100%;
-  padding: 4px 12px;
+  padding: 5px 12px;
   background: rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.4);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   text-align: center;
   flex-shrink: 0;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+  min-height: 28px;
+}
+
+.hint-bar.hint-active {
+  color: rgba(255, 255, 255, 0.9);
+  animation: hintPulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes hintPulse {
+  0% {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  100% {
+    background: rgba(255, 255, 255, 0.13);
+  }
 }
 
 /* ═══════════════════ GRID ═══════════════════ */

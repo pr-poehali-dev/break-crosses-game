@@ -452,62 +452,192 @@
 }
 
 .gcell.highlighted {
-  background: rgba(255, 255, 255, 0.12);
-  animation: cellPulse 0.5s ease-in-out infinite alternate;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
 }
 
-@keyframes cellPulse {
-  0% {
-    background: rgba(255, 255, 255, 0.08);
-  }
-  100% {
-    background: rgba(255, 255, 255, 0.18);
-  }
-}
-
-.cross-tile {
-  width: 80%;
-  height: 80%;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 900;
-  font-size: clamp(0.9rem, 3vw, 1.4rem);
-  color: rgba(255, 255, 255, 0.95);
+/* ═══════════════════ GEM TILE (ИЗУМРУД) ═══════════════════ */
+.gem-tile {
+  width: 82%;
+  height: 82%;
+  position: relative;
+  cursor: pointer;
   transition:
     transform 0.12s,
-    box-shadow 0.12s;
+    filter 0.12s;
   will-change: transform;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  /* форма шестигранного кристалла через clip-path */
+  clip-path: polygon(
+    50% 0%,
+    90% 18%,
+    100% 60%,
+    75% 100%,
+    25% 100%,
+    0% 60%,
+    10% 18%
+  );
+  background: linear-gradient(
+    160deg,
+    var(--light) 0%,
+    var(--bg) 40%,
+    var(--dark) 100%
+  );
+  filter: drop-shadow(0 3px 8px var(--glow));
+  animation: gemFloat 3s ease-in-out infinite;
 }
 
-.gcell:active .cross-tile {
-  transform: scale(0.78) !important;
+@keyframes gemFloat {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(1deg);
+  }
 }
 
-.grid-particle {
-  position: absolute;
-  font-size: 1.3rem;
-  pointer-events: none;
-  animation: gridBurst 0.65s ease-out forwards;
-  transform: translate(-50%, -50%);
-  z-index: 20;
+.gem-tile--lit {
+  filter: drop-shadow(0 0 12px var(--light)) drop-shadow(0 0 24px var(--glow))
+    brightness(1.25);
+  transform: scale(1.2) !important;
+  animation: gemPulse 0.4s ease-in-out infinite alternate;
 }
 
-@keyframes gridBurst {
+@keyframes gemPulse {
   0% {
-    transform: translate(-50%, -50%) scale(1.4);
+    filter: drop-shadow(0 0 10px var(--light)) brightness(1.2);
+  }
+  100% {
+    filter: drop-shadow(0 0 22px var(--light)) drop-shadow(0 0 40px var(--glow))
+      brightness(1.4);
+  }
+}
+
+/* грани изумруда */
+.gem-face {
+  position: absolute;
+  pointer-events: none;
+}
+
+.gem-top {
+  top: 8%;
+  left: 25%;
+  right: 25%;
+  height: 30%;
+  background: linear-gradient(180deg, var(--shine) 0%, transparent 100%);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  opacity: 0.55;
+}
+
+.gem-left {
+  top: 30%;
+  left: 4%;
+  width: 28%;
+  bottom: 18%;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.3) 0%, transparent 100%);
+  clip-path: polygon(0% 0%, 100% 20%, 100% 100%, 0% 80%);
+  opacity: 0.4;
+}
+
+.gem-right {
+  top: 30%;
+  right: 4%;
+  width: 28%;
+  bottom: 18%;
+  background: linear-gradient(270deg, rgba(0, 0, 0, 0.25) 0%, transparent 100%);
+  clip-path: polygon(0% 20%, 100% 0%, 100% 80%, 0% 100%);
+  opacity: 0.35;
+}
+
+.gem-bottom {
+  bottom: 5%;
+  left: 20%;
+  right: 20%;
+  height: 20%;
+  background: linear-gradient(0deg, var(--dark) 0%, transparent 100%);
+  clip-path: polygon(0% 0%, 100% 0%, 75% 100%, 25% 100%);
+  opacity: 0.5;
+}
+
+/* блик на изумруде */
+.gem-shine {
+  position: absolute;
+  top: 12%;
+  left: 30%;
+  width: 22%;
+  height: 22%;
+  background: radial-gradient(ellipse, var(--shine) 0%, transparent 70%);
+  border-radius: 50%;
+  opacity: 0.7;
+  pointer-events: none;
+  animation: shineMove 2.5s ease-in-out infinite;
+}
+
+@keyframes shineMove {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
     opacity: 1;
+    transform: scale(1.3) translate(2px, -2px);
+  }
+}
+
+.gcell:active .gem-tile {
+  transform: scale(0.75) !important;
+  filter: brightness(2) drop-shadow(0 0 20px var(--shine));
+}
+
+/* ═══════════════════ ОСКОЛКИ ИЗУМРУДА ═══════════════════ */
+.gem-shard {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  animation: shardFly 0.75s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+  box-shadow: 0 0 6px currentColor;
+}
+
+@keyframes shardFly {
+  0% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.9;
   }
   100% {
     transform: translate(
-        calc(-50% + var(--px, 20px)),
-        calc(-50% + var(--py, -30px))
+        calc(-50% + var(--tx, 30px)),
+        calc(-50% + var(--ty, -40px))
       )
-      scale(0.2);
+      scale(0.08) rotate(var(--rot, 120deg));
     opacity: 0;
   }
+}
+
+/* формы осколков */
+.shard-a {
+  width: 9px;
+  height: 14px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 80%);
+}
+.shard-b {
+  width: 7px;
+  height: 10px;
+  clip-path: polygon(30% 0%, 100% 40%, 70% 100%, 0% 60%);
+}
+.shard-c {
+  width: 11px;
+  height: 8px;
+  clip-path: polygon(0% 30%, 60% 0%, 100% 70%, 40% 100%);
+}
+.shard-d {
+  width: 6px;
+  height: 12px;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
 }
 
 .hud {

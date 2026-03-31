@@ -4,12 +4,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 type Screen = "home" | "game" | "pause" | "results" | "leaderboard";
 
 type Color = 0 | 1 | 2 | 3 | 4;
-const COLOR_META: { bg: string; glow: string; emoji: string }[] = [
-  { bg: "#FF6B6B", glow: "#FF6B6B88", emoji: "🔴" },
-  { bg: "#FFD93D", glow: "#FFD93D88", emoji: "🟡" },
-  { bg: "#6BCB77", glow: "#6BCB7788", emoji: "🟢" },
-  { bg: "#4D96FF", glow: "#4D96FF88", emoji: "🔵" },
-  { bg: "#CC5DE8", glow: "#CC5DE888", emoji: "🟣" },
+// Изумруды: каждый цвет — драгоценный камень со своим оттенком
+const COLOR_META: { bg: string; light: string; dark: string; glow: string; shine: string; label: string }[] = [
+  { bg: "#00b87c", light: "#4dffc3", dark: "#006644", glow: "#00b87caa", shine: "#a8ffd8", label: "emerald" },
+  { bg: "#0077e6", light: "#55aaff", dark: "#003d80", glow: "#0077e6aa", shine: "#aad4ff", label: "sapphire" },
+  { bg: "#cc2222", light: "#ff7777", dark: "#7a0000", glow: "#cc2222aa", shine: "#ffbbbb", label: "ruby"    },
+  { bg: "#cc8800", light: "#ffcc44", dark: "#7a4d00", glow: "#cc8800aa", shine: "#ffe8aa", label: "topaz"   },
+  { bg: "#8833cc", light: "#cc77ff", dark: "#4d1a7a", glow: "#8833ccaa", shine: "#ddb3ff", label: "amethyst"},
 ];
 
 interface Cell {
@@ -254,14 +255,18 @@ export default function Index() {
       setFloatingScores(prev => [...prev, { id: fid, col: avgCol, row: avgRow, value: pts }]);
       setTimeout(() => setFloatingScores(prev => prev.filter(f => f.id !== fid)), 900);
 
-      // particles
-      const color = COLOR_META[cell.color].bg;
-      const newParts: Particle[] = group.slice(0, 8).map(([r, c]) => ({
-        id: uid(),
-        x: c, y: r,
-        color,
-        emoji: Math.random() > 0.5 ? ["💥","✨","⭐","🌟","💫"][Math.floor(Math.random()*5)] : undefined,
-      }));
+      // осколки изумруда — много мелких кусочков на каждую ячейку
+      const meta = COLOR_META[cell.color];
+      const shardColors = [meta.bg, meta.light, meta.shine, meta.dark];
+      const newParts: Particle[] = group.flatMap(([r, c]) =>
+        Array.from({ length: 5 }, () => ({
+          id: uid(),
+          x: c + (Math.random() - 0.5) * 0.6,
+          y: r + (Math.random() - 0.5) * 0.6,
+          color: shardColors[Math.floor(Math.random() * shardColors.length)],
+          emoji: undefined,
+        }))
+      );
       setParticles(prev => [...prev, ...newParts]);
       setTimeout(() => setParticles(prev => prev.filter(p => !newParts.find(np => np.id === p.id))), 650);
 
@@ -391,15 +396,14 @@ export default function Index() {
                     >
                       {cell && (
                         <div
-                          className="cross-tile"
-                          style={{
-                            background: meta!.bg,
-                            boxShadow: isHighlighted ? `0 0 18px ${meta!.glow}, 0 0 36px ${meta!.glow}` : `0 2px 8px ${meta!.glow}`,
-                            transform: isHighlighted ? "scale(1.18)" : "scale(1)",
-                            border: isHighlighted ? `2px solid rgba(255,255,255,0.7)` : `2px solid rgba(255,255,255,0.3)`,
-                          }}
+                          className={`gem-tile gem-tile--${COLOR_META[cell.color].label} ${isHighlighted ? "gem-tile--lit" : ""}`}
+                          style={{ "--glow": COLOR_META[cell.color].glow, "--light": COLOR_META[cell.color].light, "--bg": COLOR_META[cell.color].bg, "--dark": COLOR_META[cell.color].dark, "--shine": COLOR_META[cell.color].shine } as React.CSSProperties}
                         >
-                          ✕
+                          <div className="gem-face gem-top" />
+                          <div className="gem-face gem-left" />
+                          <div className="gem-face gem-right" />
+                          <div className="gem-face gem-bottom" />
+                          <div className="gem-shine" />
                         </div>
                       )}
                     </div>
@@ -408,20 +412,29 @@ export default function Index() {
               )}
             </div>
 
-            {/* particles */}
-            {particles.map(p => (
-              <div
-                key={p.id}
-                className="grid-particle"
-                style={{
-                  left: `${(p.x + 0.5) / cols * 100}%`,
-                  top: `${(p.y + 0.5) / rows * 100}%`,
-                  color: p.color,
-                }}
-              >
-                {p.emoji || "●"}
-              </div>
-            ))}
+            {/* осколки изумруда */}
+            {particles.map((p, i) => {
+              const angle = (i * 137.5) % 360;
+              const dist = 20 + (i % 5) * 14;
+              const tx = Math.cos(angle * Math.PI / 180) * dist;
+              const ty = Math.sin(angle * Math.PI / 180) * dist - 10;
+              const shapes = ["shard-a","shard-b","shard-c","shard-d"];
+              const shape = shapes[i % shapes.length];
+              return (
+                <div
+                  key={p.id}
+                  className={`gem-shard ${shape}`}
+                  style={{
+                    left: `${(p.x + 0.5) / cols * 100}%`,
+                    top: `${(p.y + 0.5) / rows * 100}%`,
+                    background: p.color,
+                    "--tx": `${tx}px`,
+                    "--ty": `${ty}px`,
+                    "--rot": `${angle}deg`,
+                  } as React.CSSProperties}
+                />
+              );
+            })}
 
             {/* floating scores */}
             {floatingScores.map(f => (

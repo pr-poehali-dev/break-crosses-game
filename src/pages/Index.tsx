@@ -58,10 +58,58 @@ function useAudio(enabled: boolean) {
   }, [enabled, getCtx]);
 
   const playSelect = useCallback(() => tone(520, "sine", 0.12, 0.15), [tone]);
+
   const playExplode = useCallback((count: number) => {
-    tone(300 + count * 30, "sine", 0.25, 0.25);
-    setTimeout(() => tone(600 + count * 20, "triangle", 0.2, 0.2), 80);
-  }, [tone]);
+    if (!enabled) return;
+    const ac = getCtx(); if (!ac) return;
+
+    // белый шум — основа звука разбитого стекла
+    const bufSize = ac.sampleRate * 0.35;
+    const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1);
+    const noise = ac.createBufferSource();
+    noise.buffer = buf;
+
+    // высокочастотный фильтр — убираем низы, остаётся «стеклянный» треск
+    const hpf = ac.createBiquadFilter();
+    hpf.type = "highpass";
+    hpf.frequency.value = 2200 + count * 120;
+
+    const noiseGain = ac.createGain();
+    noiseGain.gain.setValueAtTime(0.55, ac.currentTime);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.28);
+
+    noise.connect(hpf); hpf.connect(noiseGain); noiseGain.connect(ac.destination);
+    noise.start(ac.currentTime); noise.stop(ac.currentTime + 0.35);
+
+    // короткий удар — «первый контакт»
+    const imp = ac.createOscillator();
+    const impGain = ac.createGain();
+    imp.connect(impGain); impGain.connect(ac.destination);
+    imp.type = "sine";
+    imp.frequency.setValueAtTime(900 + count * 40, ac.currentTime);
+    imp.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.06);
+    impGain.gain.setValueAtTime(0.4, ac.currentTime);
+    impGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.08);
+    imp.start(ac.currentTime); imp.stop(ac.currentTime + 0.1);
+
+    // звон осколков — несколько тонов с задержкой
+    [0, 30, 65, 110].forEach((delay, i) => {
+      setTimeout(() => {
+        const ac2 = getCtx(); if (!ac2) return;
+        const o = ac2.createOscillator();
+        const g2 = ac2.createGain();
+        o.connect(g2); g2.connect(ac2.destination);
+        o.type = "triangle";
+        o.frequency.value = 1800 + i * 430 + count * 60;
+        g2.gain.setValueAtTime(0.12 - i * 0.02, ac2.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001, ac2.currentTime + 0.18);
+        o.start(ac2.currentTime); o.stop(ac2.currentTime + 0.2);
+      }, delay);
+    });
+  }, [enabled, getCtx]);
+
   const playFail = useCallback(() => tone(180, "sawtooth", 0.3, 0.18), [tone]);
 
   return { playSelect, playExplode, playFail };
